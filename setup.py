@@ -6,12 +6,10 @@ setup(
     version='0.1.0',
     author='Marcin Kossakowski',
     author_email='marcin.kossakowski@gmail.com',
-    packages=['pyDbWrapper'],
+    packages=['pydbwrapper'],
     url='git://github.com/martez81/pyDbWrapper.git',
     license='LICENSE.txt',
     description='MySQL python driver wrapper',
     long_description=open('README.txt').read(),
-    install_requires=[
-        "MySQLdb >= 1.0"
-    ],
+    install_requires=[]
 )
