@@ -10,6 +10,5 @@ setup(
     url='git://github.com/martez81/pyDbWrapper.git',
     license='LICENSE.txt',
     description='MySQL python driver wrapper',
-    long_description=open('README.txt').read(),
-    install_requires=[]
+    long_description=open('README.txt').read()
 )
