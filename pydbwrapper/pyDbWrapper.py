@@ -1,4 +1,7 @@
-#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+"""PyDbWrapper
+"""
 
 import os
 import re
@@ -8,16 +11,8 @@ import time
 import MySQLdb
 import ConfigParser
 
-"""PyDbWrapper
-
-0.1 - 2012-10-01
-    Fixed empty opts dictionary in execute method
-    Added lastInsertId class property
-    Added charset property, set to utf8 by default
-"""
-
-
 class PyDbWrapper:
+
     def __init__(self, dbName, **opts):
         optsDefaults = {
             'config': os.path.dirname(os.path.abspath(__file__)) + '/pyDbWrapperConnections.ini'
