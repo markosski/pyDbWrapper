@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """PyDbWrapper
+
+TODO: 
+    - Combine fetchFirst and fetchAll methods. 
+    Implementation of those two methods is almost identical.
 """
 
 import os
@@ -13,134 +17,139 @@ import ConfigParser
 
 class PyDbWrapper:
 
-    def __init__(self, dbName, **opts):
-        optsDefaults = {
-            'config': os.path.dirname(os.path.abspath(__file__)) + '/pyDbWrapperConnections.ini'
-        }
+    def __init__(self, connInfo, **opts):
+        """
+            :params dict connInfo: database credentials and user info.
+                Required keys are user, password, dbname, host; optional is 
+                port that is set to default value of 3306
+            :params dict opts: optional parameters.
+        """
 
-        opts = dict(optsDefaults, **opts)
+        # additional options
+        opts = dict({}, **opts) 
 
-        self.conn = None
-        self.dbName = None
-        self.connections = None
-        self.cur = None
-        self.query = None
-        self.sqlCacheOn = True
-        self.info = {
+        self._connInfo = dict({
+            'host'      : None,
+            'dbname'    : None,
+            'port'      : 3306,
+            'user'      : None,
+            'password'  : None,
+            }, 
+            **connInfo)
+        self._conn          = None
+        self._opts          = opts
+        self.query          = None
+        self.sql_no_cache   = False
+        self.autocommit     = True
+        self.sqlCacheOn     = True
+        self.lastInsertId   = None
+        self.charset        = 'utf8'
+        self.info           = {
             'executed': [],
             'connStats': None,
             'lastInsertId': None,
             'totalExecutionTime': None
         }
-        self.lastInsertId = None
-        self.charset = 'utf8'
 
-        # Load config file with defined connections
-        if opts['config'] and os.path.exists(opts['config']):
-            self.configPath = opts['config']
-        # Otherwise throw exception
+        # check if neccesary connection data is set
+        if all(self._connInfo.get(k, False) for k in ('host','user','password','dbname')):
+            pass
         else:
-            raise Exception('Path to config not specified in object constructor or path does not exist')
+            raise ValueError('One or more connection parameters missing, required are: ' + ', '.join(connInfoRequired))
 
-        self.connections = ConfigParser.ConfigParser()
-        self.connections.read(self.configPath)
 
-        if dbName != None:
-            self.dbName = dbName
-        else:
-            raise Exception('Expected constructor parameter to be connection name.')
-
-    def connection(self):
-
-        if self.conn != None:
+    def _connection(self):
+        """Will create new database connection if not already established
+        """
+        if self._conn is not None:
             return
 
         try:
-            self.conn = MySQLdb.connect(
-                host = self.connections.get(self.dbName, 'host'),
-                port = self.connections.getint(self.dbName, 'port'),
-                user = self.connections.get(self.dbName, 'user'),
-                passwd = self.connections.get(self.dbName, 'password'),
-                db = self.connections.get(self.dbName, 'dbname'),
+            self._conn = MySQLdb.connect(
+                host    = self._connInfo.get('host'),
+                port    = self._connInfo.get('port'),
+                user    = self._connInfo.get('user'),
+                passwd  = self._connInfo.get('password'),
+                db      = self._connInfo.get('dbname'),
                 charset = self.charset
             )
+
         except MySQLdb.Error, e:
-            raise Exception('There was a problem with connection to the database: ' + str(e))
+            raise PyDbWrapperException('There was a problem with connection to the database: ' + str(e))
 
-    def fetchFirst(self, query, **opts):       
-        # Check/create the connection
-        self.connection()
 
-        # Default options
-        optsDefaults = {
-            'returnDict': True
-        }
+    def _fetch(self, query, **opts):       
+        """Fetches first or all records returned from cursor object
+            :params string query: sql query
+            :params dict opts: optional parameters
+                - returnDict: return data as dictionary
+                - fetchType: "first" or "all"
+        """
 
-        opts = dict(optsDefaults.items() + opts.items())
+        opts = dict({'returnDict': True}, **opts)
 
+        # If sql_no_cache is set to true
+        # alter the query to include SQL_NO_CACHE directive
+        if self.sql_no_cache == True:
+            query = re.sub(r'SELECT\s', 'SELECT SQL_NO_CACHE ', query, 1, flags=re.IGNORECASE)
+
+        # Check/reestablish connection
+        self._connection()
+        # Return data in a form of dictionary
         if opts['returnDict'] == True:
-            cur = self.conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
+            cur = self._conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
         else:
-            cur = self.conn.cursor()
+            cur = self._conn.cursor()
 
-        t0 = time.time()
+        t0 = time.time() # start time
         cur.execute(query)
-        t1 = time.time() - t0
+        if opts.get('fetchType') == 'first':
+            rows = cur.fetchone()
+        elif opts.get('fetchType') == 'all':
+            rows = cur.fetchall()
+        else:
+            raise PyDbWrapperException('Unknown fetchType')
+        t1 = time.time() - t0 # end time
 
-        self.setInfo(cur, time=t1)
-
-        row = cur.fetchone()
+        self._setInfo(cur, time=t1) # store time
 
         cur.close()
-
-        return row
-
-    def fetchAll(self, query, **opts):
-
-        # Check/create the connection
-        self.connection()
-
-        # Default options
-        optsDefaults = {
-            'returnDict': True
-        }
-        opts = dict(optsDefaults.items() + opts.items())
-
-        if opts['returnDict'] == True:
-            cur = self.conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
-        else:
-            cur = self.conn.cursor()
-
-        t0 = time.time()
-        cur.execute(query)
-        t1 = time.time() - t0
-
-        self.setInfo(cur, time=t1)
-
-        rows = cur.fetchall()
-
-        cur.close()
-
         return rows
 
-    def execute(self, query, data=None, opts=None):
 
-        # Default options
-        optsDefaults = {
-            'returnSQL': False
-        }
+    def fetchFirst(self, query, **opts):
+        return self._fetch(query, fetchType='first', **opts)
 
-        if opts:
-            opts = dict(optsDefaults.items() + opts.items())
-        else:
-            opts = optsDefaults
 
-        # Check/create the connection
-        self.connection()
-        cur = self.conn.cursor()
+    def fetchAll(self, query, **opts):
+        return self._fetch(query, fetchType='all', **opts)
+
+
+    def commit(self):
+        self._conn.commit()
+
+
+    def rollback(self):
+        self._conn.rollback()
+
+
+    def execute(self, query, data=None, **opts):
+        """Executes passed SQL query
+
+            :param string query: MySQL string to be executed
+            :param dict data: if passed sql query is in tokenized form data has to be passed
+                as well; data parameter has to be of dict type and contains all the keys
+                that will replace tokens in the passed string  
+            :param dict opts: optional parameters
+        """
+
+        opts = dict({'returnSQL': False}, **opts)
+
+        # create the connection
+        self._connection()
+        cur = self._conn.cursor()
 
         if data and query:
-
             replaceData = []
 
             # Find columns to fillout in SQL statement
@@ -152,39 +161,52 @@ class PyDbWrapper:
                 try:
                     val = data[col]
                 except KeyError, e:
-                    raise Exception('Missing data for referenced column "' + col + '"')
+                    raise PyDbWrapperError('Missing value for referenced column "' + col + '"')
 
                 query = query.replace('[' + col + ']', '`' + col + '` = %s')
 
                 replaceData.append(val)
-            #            pdb.set_trace()
-            # Execute SQL
+
+            # Execute SQL with tokens
             if opts['returnSQL'] == True:
                 return query % tuple(replaceData)
-            else:
-                t0 = time.time()
-                cur.execute(query, tuple(replaceData))
-                t1 = time.time() - t0
 
-                self.setInfo(cur, time=t1)
+            t0 = time.time()
+            cur.execute(query, tuple(replaceData))
+            t1 = time.time() - t0
+
+            self._setInfo(cur, time=t1)
+            cur.close()
+
         elif query:
-            # Execute passed raw SQL
+            # Execute passed raw SQL query
             if opts['returnSQL'] == True:
                 return query
-            else:
-                t0 = time.time()
-                cur.execute(query)
+            # Exectue SQL query
+            t0 = time.time()
+            cur.execute(query)
+            t1 = time.time() - t0
 
-                t1 = time.time() - t0
-
-                self.setInfo(cur, time=t1)
-
+            self._setInfo(cur, time=t1)
             cur.close()
 
         else:
-            raise Exception('Expecting 1st parameter to be SQL query.')
+            raise PyDbWrapperError('Expecting 1st parameter to be SQL query.')
 
-    def setInfo(self, cur, **opts):
+        # If autocommit it True
+        # otherwise commit() method has to be run explicitly
+        if self.autocommit:
+            self.commit()
+
+    def _setInfo(self, cur, **opts):
+        """This internal method is run each time query is executed.
+        Is stores some info about query execution.
+
+            :param object cur: curson object
+            :param dict opts: optional parameters
+        """
+
+        opts = dict({}, **opts)
 
         self.lastInsertId = cur.lastrowid
         self.info['executed'].append(
@@ -195,7 +217,7 @@ class PyDbWrapper:
                 'executionTime': opts['time']
             }
         )
-        self.info['connStats'] = self.conn.stat()
+        self.info['connStats'] = self._conn.stat()
         self.info['lastInsertId'] = cur.lastrowid
 
         totalTime = 0
@@ -203,7 +225,6 @@ class PyDbWrapper:
             totalTime += executed['executionTime']
 
         self.info['totalExecutionTime'] = totalTime
-        
-    def __del__(self):
-        pass
-        #self.close()
+
+
+class PyDbWrapperError(Exception): pass
