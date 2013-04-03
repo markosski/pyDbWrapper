@@ -3,8 +3,7 @@
 """PyDbWrapper
 
 TODO: 
-    - Combine fetchFirst and fetchAll methods. 
-    Implementation of those two methods is almost identical.
+    
 """
 
 import os
@@ -14,6 +13,8 @@ import pdb
 import time
 import MySQLdb
 import ConfigParser
+
+sys.exit('asdasd')
 
 class PyDbWrapper:
 
@@ -57,11 +58,10 @@ class PyDbWrapper:
         else:
             raise ValueError('One or more connection parameters missing, required are: ' + ', '.join(connInfoRequired))
 
-
     def _connection(self):
         """Will create new database connection if not already established
         """
-        if self._conn is not None:
+        if self._conn and self._conn.open:
             return
 
         try:
@@ -77,8 +77,7 @@ class PyDbWrapper:
         except MySQLdb.Error, e:
             raise PyDbWrapperException('There was a problem with connection to the database: ' + str(e))
 
-
-    def _fetch(self, query, **opts):       
+    def _fetch(self, query, **opts):
         """Fetches first or all records returned from cursor object
             :params string query: sql query
             :params dict opts: optional parameters
@@ -116,22 +115,17 @@ class PyDbWrapper:
         cur.close()
         return rows
 
-
     def fetchFirst(self, query, **opts):
         return self._fetch(query, fetchType='first', **opts)
-
 
     def fetchAll(self, query, **opts):
         return self._fetch(query, fetchType='all', **opts)
 
-
     def commit(self):
         self._conn.commit()
 
-
     def rollback(self):
         self._conn.rollback()
-
 
     def execute(self, query, data=None, **opts):
         """Executes passed SQL query
@@ -226,5 +220,7 @@ class PyDbWrapper:
 
         self.info['totalExecutionTime'] = totalTime
 
+    def __del__(self):
+        pass
 
 class PyDbWrapperError(Exception): pass
