@@ -26,23 +26,30 @@ To execute INSERT, UPDATE query just pass it to execute() method:
 To retrieve records:
 
 	data = db.fetchAll('SELECT * FROM `test`')
-or
+
+or to retrieve only first record:
+
 	data = db.fetchFirst('SELECT * FROM `test`')
 
 OBJECT SETTINGS
 ---------------
 
 * get info about executed queries
+
 	print db.info
 
 * get last insert autoincrement ID
+
 	db.lastInsertId
 
 * cache on/off
+
 	db.sql_no_cache = bool (False)
 
 * autocommit on/off
+
 	db.autocommit = bool (True)
 
 * charset
+
 	db.charset = str (utf8)
