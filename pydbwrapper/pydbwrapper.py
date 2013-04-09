@@ -42,7 +42,6 @@ class PyDbWrapper:
         self.query          = None
         self.sql_no_cache   = False
         self.autocommit     = True
-        self.sqlCacheOn     = True
         self.lastInsertId   = None
         self.charset        = 'utf8'
         self.info           = {
