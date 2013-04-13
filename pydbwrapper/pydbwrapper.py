@@ -12,9 +12,6 @@ import sys
 import pdb
 import time
 import MySQLdb
-import ConfigParser
-
-sys.exit('asdasd')
 
 class PyDbWrapper:
 
