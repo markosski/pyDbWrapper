@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """PyDbWrapper
-
-TODO: 
-    
+ 
 """
 
 import os
@@ -41,6 +39,7 @@ class PyDbWrapper:
         self.autocommit     = True
         self.lastInsertId   = None
         self.charset        = 'utf8'
+        self.infoSize       = 200
         self.info           = {
             'executed': [],
             'connStats': None,
@@ -83,6 +82,9 @@ class PyDbWrapper:
 
         opts = dict({'returnDict': True}, **opts)
 
+        # Clean query from formatting (lines, spaces etc.)
+        query = self.cleanString(query)
+
         # If sql_no_cache is set to true
         # alter the query to include SQL_NO_CACHE directive
         if self.sql_no_cache == True:
@@ -123,6 +125,9 @@ class PyDbWrapper:
     def rollback(self):
         self._conn.rollback()
 
+    def cleanString(self, sqlString):
+        return ' '.join([x.strip() for x in sqlString.splitlines() if x.strip() != ''])
+
     def execute(self, query, data=None, **opts):
         """Executes passed SQL query
 
@@ -138,6 +143,9 @@ class PyDbWrapper:
         # create the connection
         self._connection()
         cur = self._conn.cursor()
+
+        # Clean query from formatting (lines, spaces etc.)
+        query = self.cleanString(query)
 
         if data and query:
             replaceData = []
@@ -160,6 +168,7 @@ class PyDbWrapper:
             # Execute SQL with tokens
             if opts['returnSQL'] == True:
                 return query % tuple(replaceData)
+
 
             t0 = time.time()
             cur.execute(query, tuple(replaceData))
@@ -207,6 +216,13 @@ class PyDbWrapper:
                 'executionTime': opts['time']
             }
         )
+
+        # Check the size of the list.
+        # If it's to big truncate it from the bottom.
+        if len(self.info) > self.infoSize:
+            self.info = self.info[1:]
+
+
         self.info['connStats'] = self._conn.stat()
         self.info['lastInsertId'] = cur.lastrowid
 
