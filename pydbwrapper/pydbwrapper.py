@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """PyDbWrapper
- 
+		 
 """
 
 import os
@@ -56,21 +56,19 @@ class PyDbWrapper:
     def _connection(self):
         """Will create new database connection if not already established
         """
-        if self._conn and self._conn.open:
-            return
-
-        try:
-            self._conn = MySQLdb.connect(
-                host    = self._connInfo.get('host'),
-                port    = self._connInfo.get('port'),
-                user    = self._connInfo.get('user'),
-                passwd  = self._connInfo.get('password'),
-                db      = self._connInfo.get('dbname'),
-                charset = self.charset
-            )
-
-        except MySQLdb.Error, e:
-            raise PyDbWrapperException('There was a problem with connection to the database: ' + str(e))
+        if (self._conn is None or 
+            not self._conn.open):
+            try:
+                self._conn = MySQLdb.connect(
+                    host    = self._connInfo.get('host'),
+                    port    = self._connInfo.get('port'),
+                    user    = self._connInfo.get('user'),
+                    passwd  = self._connInfo.get('password'),
+                    db      = self._connInfo.get('dbname'),
+                    charset = self.charset
+                )
+            except MySQLdb.Error, e:
+                raise PyDbWrapperError('There was a problem with connecting to the database: %s' % e)
 
     def _fetch(self, query, **opts):
         """Fetches first or all records returned from cursor object
@@ -90,40 +88,55 @@ class PyDbWrapper:
         if self.sql_no_cache == True:
             query = re.sub(r'SELECT\s', 'SELECT SQL_NO_CACHE ', query, 1, flags=re.IGNORECASE)
 
-        # Check/reestablish connection
+        # Check/reestablish connection if needed
         self._connection()
+
         # Return data in a form of dictionary
         if opts['returnDict'] == True:
             cur = self._conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
         else:
             cur = self._conn.cursor()
 
+        try:
+            cur.execute(query)
+        except MySQLdb.OperationalError, e:
+            raise PyDbWrapperError('Problem executing this query: %s' % e)      
+        
         t0 = time.time() # start time
-        cur.execute(query)
+
         if opts.get('fetchType') == 'first':
             rows = cur.fetchone()
         elif opts.get('fetchType') == 'all':
             rows = cur.fetchall()
         else:
-            raise PyDbWrapperException('Unknown fetchType')
+            raise PyDbWrapperError('Unknown fetchType')
+
         t1 = time.time() - t0 # end time
 
         self._setInfo(cur, time=t1) # store time
 
         cur.close()
+
         return rows
 
     def fetchFirst(self, query, **opts):
-        return self._fetch(query, fetchType='first', **opts)
+        data = self._fetch(query, fetchType='first', **opts)
+        # self.close()
+        return data
 
     def fetchAll(self, query, **opts):
-        return self._fetch(query, fetchType='all', **opts)
+        data = self._fetch(query, fetchType='all', **opts)
+        # self.close()
+        return data
 
     def commit(self):
         self._conn.commit()
 
     def rollback(self):
         self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
 
     def cleanString(self, sqlString):
         return ' '.join([x.strip() for x in sqlString.splitlines() if x.strip() != ''])
@@ -171,7 +184,10 @@ class PyDbWrapper:
 
 
             t0 = time.time()
-            cur.execute(query, tuple(replaceData))
+            try:
+                cur.execute(query, tuple(replaceData))
+            except MySQLdb.OperationalError, e:
+                raise PyDbWrapperError('Problem executing this query: %s, query %s' % (e, cur._last_executed))
             t1 = time.time() - t0
 
             self._setInfo(cur, time=t1)
@@ -196,6 +212,9 @@ class PyDbWrapper:
         # otherwise commit() method has to be run explicitly
         if self.autocommit:
             self.commit()
+
+        # close connection
+        # self.close()
 
     def _setInfo(self, cur, **opts):
         """This internal method is run each time query is executed.
@@ -233,6 +252,10 @@ class PyDbWrapper:
         self.info['totalExecutionTime'] = totalTime
 
     def __del__(self):
-        pass
+        if self._conn and self._conn.open:
+            self.close()   
+            print 'connection closed'
 
-class PyDbWrapperError(Exception): pass
+
+class PyDbWrapperError(Exception): 
+    pass
