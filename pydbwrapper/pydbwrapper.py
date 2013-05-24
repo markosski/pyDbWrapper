@@ -121,12 +121,12 @@ class PyDbWrapper:
 
     def fetchFirst(self, query, **opts):
         data = self._fetch(query, fetchType='first', **opts)
-        # self.close()
+
         return data
 
     def fetchAll(self, query, **opts):
         data = self._fetch(query, fetchType='all', **opts)
-        # self.close()
+
         return data
 
     def commit(self):
@@ -136,7 +136,7 @@ class PyDbWrapper:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        self.__del__()
 
     def cleanString(self, sqlString):
         return ' '.join([x.strip() for x in sqlString.splitlines() if x.strip() != ''])
@@ -213,9 +213,6 @@ class PyDbWrapper:
         if self.autocommit:
             self.commit()
 
-        # close connection
-        # self.close()
-
     def _setInfo(self, cur, **opts):
         """This internal method is run each time query is executed.
         Is stores some info about query execution.
@@ -253,9 +250,7 @@ class PyDbWrapper:
 
     def __del__(self):
         if self._conn and self._conn.open:
-            self.close()   
-            print 'connection closed'
-
+            self._conn.close()   
 
 class PyDbWrapperError(Exception): 
     pass
