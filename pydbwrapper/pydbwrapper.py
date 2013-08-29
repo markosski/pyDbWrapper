@@ -32,15 +32,16 @@ class PyDbWrapper:
             'password'  : None,
             }, 
             **connInfo)
-        self._conn          = None
-        self._opts          = opts
-        self.query          = None
-        self.sql_no_cache   = False
-        self.autocommit     = True
-        self.lastInsertId   = None
-        self.charset        = 'utf8'
-        self.infoSize       = 200
-        self.info           = {
+        self._conn              = None
+        self._opts              = opts
+        self.query              = None
+        self.sql_no_cache       = False
+        self.autocommit         = True
+        self.lastInsertId       = None
+        self.charset            = 'utf8'
+        self.reuseConnection    = True
+        self.infoSize           = 200
+        self.info               = {
             'executed': [],
             'connStats': None,
             'lastInsertId': None,
@@ -53,22 +54,34 @@ class PyDbWrapper:
         else:
             raise ValueError('One or more connection parameters missing, required are: ' + ', '.join(connInfoRequired))
 
-    def _connection(self):
-        """Will create new database connection if not already established
+    def _connection(self, reuse=True):
+        """Will create new database connection if reuse=False
         """
         if (self._conn is None or 
             not self._conn.open):
-            try:
-                self._conn = MySQLdb.connect(
-                    host    = self._connInfo.get('host'),
-                    port    = self._connInfo.get('port'),
-                    user    = self._connInfo.get('user'),
-                    passwd  = self._connInfo.get('password'),
-                    db      = self._connInfo.get('dbname'),
-                    charset = self.charset
-                )
-            except MySQLdb.Error, e:
-                raise PyDbWrapperError('There was a problem with connecting to the database: %s' % e)
+            self.connect()
+            # print 'New connection established'
+        else:
+            if reuse:
+                # print 'Reusing connection'
+                pass
+            else:
+                self.connect()
+                # print 'New connection established'
+                
+
+    def connect(self):
+        try:
+            self._conn = MySQLdb.connect(
+                host    = self._connInfo.get('host'),
+                port    = self._connInfo.get('port'),
+                user    = self._connInfo.get('user'),
+                passwd  = self._connInfo.get('password'),
+                db      = self._connInfo.get('dbname'),
+                charset = self.charset
+            )
+        except MySQLdb.Error, e:
+            raise PyDbWrapperError('There was a problem with connecting to the database: %s' % e)
 
     def _fetch(self, query, **opts):
         """Fetches first or all records returned from cursor object
@@ -89,7 +102,7 @@ class PyDbWrapper:
             query = re.sub(r'SELECT\s', 'SELECT SQL_NO_CACHE ', query, 1, flags=re.IGNORECASE)
 
         # Check/reestablish connection if needed
-        self._connection()
+        self._connection(reuse=self.reuseConnection)
 
         # Return data in a form of dictionary
         if opts['returnDict'] == True:
@@ -154,7 +167,7 @@ class PyDbWrapper:
         opts = dict({'returnSQL': False}, **opts)
 
         # create the connection
-        self._connection()
+        self._connection(reuse=self.reuseConnection)
         cur = self._conn.cursor()
 
         # Clean query from formatting (lines, spaces etc.)
@@ -250,6 +263,7 @@ class PyDbWrapper:
 
     def __del__(self):
         if self._conn and self._conn.open:
+            # print 'Closing connection'
             self._conn.close()   
 
 class PyDbWrapperError(Exception): 
