@@ -11,11 +11,18 @@ import pdb
 import time
 import MySQLdb
 
-class PyDbWrapper:
+class PyDbWrapper(object):
+    _instance = None
+
+    def __new__(cls, connInfo, **opts):
+        if cls._instance != None:
+            cls._instance.debug('Reusing singleton object')
+            return cls._instance
+        else:
+            return super(PyDbWrapper, cls).__new__(cls)
 
     def __init__(self, connInfo, **opts):
-        """
-            :params dict connInfo: database credentials and user info.
+        """:params dict connInfo: database credentials and user info.
                 Required keys are user, password, dbname, host; optional is 
                 port that is set to default value of 3306
             :params dict opts: optional parameters.
@@ -24,7 +31,7 @@ class PyDbWrapper:
         # additional options
         opts = dict({}, **opts) 
 
-        self._connInfo = dict({
+        self._connInfo  = dict({
             'host'      : None,
             'dbname'    : None,
             'port'      : 3306,
@@ -32,6 +39,7 @@ class PyDbWrapper:
             'password'  : None,
             }, 
             **connInfo)
+        self.debugMode          = True
         self._conn              = None
         self._opts              = opts
         self.query              = None
@@ -40,7 +48,7 @@ class PyDbWrapper:
         self.lastInsertId       = None
         self.charset            = 'utf8'
         self.reuseConnection    = True
-        self.infoSize           = 200
+        self.infoSizeLimit      = 200
         self.info               = {
             'executed': [],
             'connStats': None,
@@ -54,22 +62,25 @@ class PyDbWrapper:
         else:
             raise ValueError('One or more connection parameters missing, required are: ' + ', '.join(connInfoRequired))
 
+    @classmethod
+    def singleton(cls, connInfo, **opts):
+        cls._instance = cls(connInfo, **opts)
+        return cls._instance 
+
     def _connection(self, reuse=True):
         """Will create new database connection if reuse=False
         """
-        if (self._conn is None or 
-            not self._conn.open):
+        if (self._conn is None 
+            or self._conn.open == 0):
             self.connect()
-            # print 'New connection established'
+            self.debug('New connection established')
         else:
             if reuse:
-                # print 'Reusing connection'
-                pass
+                self.debug('Reusing connection')
             else:
                 self.connect()
-                # print 'New connection established'
+                self.debug('New connection established')
                 
-
     def connect(self):
         try:
             self._conn = MySQLdb.connect(
@@ -130,6 +141,9 @@ class PyDbWrapper:
 
         cur.close()
 
+        if self.reuseConnection == False:
+            self.close()
+
         return rows
 
     def fetchFirst(self, query, **opts):
@@ -145,11 +159,19 @@ class PyDbWrapper:
     def commit(self):
         self._conn.commit()
 
+        if self.reuseConnection == False:
+            self.close()
+
     def rollback(self):
         self._conn.rollback()
 
+        if self.reuseConnection == False:
+            self.close()
+
     def close(self):
-        self.__del__()
+        if self._conn and self._conn.open:
+            self._conn.close()   
+            self.debug('...connection closed')
 
     def cleanString(self, sqlString):
         return ' '.join([x.strip() for x in sqlString.splitlines() if x.strip() != ''])
@@ -199,8 +221,10 @@ class PyDbWrapper:
             t0 = time.time()
             try:
                 cur.execute(query, tuple(replaceData))
-            except MySQLdb.OperationalError, e:
+            except Exception, e:
+                self.close()
                 raise PyDbWrapperError('Problem executing this query: %s, query %s' % (e, cur._last_executed))
+
             t1 = time.time() - t0
 
             self._setInfo(cur, time=t1)
@@ -212,7 +236,12 @@ class PyDbWrapper:
                 return query
             # Exectue SQL query
             t0 = time.time()
-            cur.execute(query)
+            try:
+                cur.execute(query)
+            except Exception, e:
+                self.close()
+                raise PyDbWrapperError('Problem executing this query: %s, query %s' % (e, cur._last_executed))
+
             t1 = time.time() - t0
 
             self._setInfo(cur, time=t1)
@@ -225,6 +254,10 @@ class PyDbWrapper:
         # otherwise commit() method has to be run explicitly
         if self.autocommit:
             self.commit()
+
+    def debug(self, message):
+        if self.debugMode:
+            print message
 
     def _setInfo(self, cur, **opts):
         """This internal method is run each time query is executed.
@@ -248,7 +281,7 @@ class PyDbWrapper:
 
         # Check the size of the list.
         # If it's to big truncate it from the bottom.
-        if len(self.info) > self.infoSize:
+        if len(self.info) > self.infoSizeLimit:
             self.info = self.info[1:]
 
 
@@ -262,9 +295,8 @@ class PyDbWrapper:
         self.info['totalExecutionTime'] = totalTime
 
     def __del__(self):
-        if self._conn and self._conn.open:
-            # print 'Closing connection'
-            self._conn.close()   
-
+        self.debug('Called PyDbWrapper destructor')
+        self.close()
+            
 class PyDbWrapperError(Exception): 
     pass
