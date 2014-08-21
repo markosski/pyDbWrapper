@@ -67,20 +67,6 @@ class PyDbWrapper(object):
         cls._instance = cls(connInfo, **opts)
         return cls._instance 
 
-    def _connection(self, reuse=True):
-        """Will create new database connection if reuse=False
-        """
-        if (self._conn is None 
-            or self._conn.open == 0):
-            self.connect()
-            self.debug('New connection established')
-        else:
-            if reuse:
-                self.debug('Reusing connection')
-            else:
-                self.connect()
-                self.debug('New connection established')
-                
     def connect(self):
         try:
             self._conn = MySQLdb.connect(
@@ -113,7 +99,7 @@ class PyDbWrapper(object):
             query = re.sub(r'SELECT\s', 'SELECT SQL_NO_CACHE ', query, 1, flags=re.IGNORECASE)
 
         # Check/reestablish connection if needed
-        self._connection(reuse=self.reuseConnection)
+        self.connect()
 
         # Return data in a form of dictionary
         if opts['returnDict'] == True:
@@ -169,8 +155,9 @@ class PyDbWrapper(object):
             self.close()
 
     def close(self):
-        if self._conn and self._conn.open:
+        if self._conn:
             self._conn.close()   
+            self._conn = None
             self.debug('...connection closed')
 
     def cleanString(self, sqlString):
@@ -189,7 +176,7 @@ class PyDbWrapper(object):
         opts = dict({'returnSQL': False}, **opts)
 
         # create the connection
-        self._connection(reuse=self.reuseConnection)
+        self.connect()
         cur = self._conn.cursor()
 
         # Clean query from formatting (lines, spaces etc.)
@@ -216,39 +203,27 @@ class PyDbWrapper(object):
             # Execute SQL with tokens
             if opts['returnSQL'] == True:
                 return query % tuple(replaceData)
-
-
-            t0 = time.time()
-            try:
-                cur.execute(query, tuple(replaceData))
-            except Exception, e:
-                self.close()
-                raise PyDbWrapperError('Problem executing this query: %s, query %s' % (e, cur._last_executed))
-
-            t1 = time.time() - t0
-
-            self._setInfo(cur, time=t1)
-            cur.close()
-
         elif query:
-            # Execute passed raw SQL query
             if opts['returnSQL'] == True:
                 return query
-            # Exectue SQL query
-            t0 = time.time()
-            try:
-                cur.execute(query)
-            except Exception, e:
-                self.close()
-                raise PyDbWrapperError('Problem executing this query: %s, query %s' % (e, cur._last_executed))
-
-            t1 = time.time() - t0
-
-            self._setInfo(cur, time=t1)
-            cur.close()
-
         else:
             raise PyDbWrapperError('Expecting 1st parameter to be SQL query.')
+
+        t0 = time.time()
+        try:
+            # Execute query
+            if data:
+                cur.execute(query, tuple(replaceData))
+            else:
+                cur.execute(query)
+        except MySQLdb.OperationalError, e:
+            self.close()
+            raise PyDbWrapperError('Problem executing this query: %s, query %s' % (e, cur._last_executed))
+
+        t1 = time.time() - t0
+
+        self._setInfo(cur, time=t1)
+        cur.close()
 
         # If autocommit it True
         # otherwise commit() method has to be run explicitly
@@ -295,7 +270,6 @@ class PyDbWrapper(object):
         self.info['totalExecutionTime'] = totalTime
 
     def __del__(self):
-        self.debug('Called PyDbWrapper destructor')
         self.close()
             
 class PyDbWrapperError(Exception): 
